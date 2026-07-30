@@ -343,3 +343,151 @@ by shifting the boundary, and it picks the size of the shift from the class rati
 `160/50`. Nothing about 3.2 encodes what missing a fraud report costs. It works here only
 because the rarest class happens to be the expensive one, which is a coincidence of this
 dataset and not a property we should build on.
+
+---
+
+## Step 5: decide by expected cost, and calibrate so the cost rule works
+
+```bash
+uv run python analysis/05_cost_and_calibration.py
+```
+
+Writes `results/05_regularisation.csv`, `05_calibration.csv`, `05_cost_sweep.csv`,
+`05_separability_stress.csv`.
+
+Everything up to here used `argmax`, which assumes all four mistakes cost the same.
+But they don't. So, we introduce cost of failing: give the model a matrix of what each mistake
+costs, and pick the queue with the lowest expected cost.
+
+    C[true, predicted]      zero on the diagonal
+    C[fraud-report, *] = M  every other mistake costs 1
+    route to argmin over k of  sum_j  P(j|x) * C[j, k]
+
+`argmax` is the special case M = 1. The numbers come from the business, never from class
+frequencies, which is the whole difference from step 4. Two lines of code.
+
+### It broke immediately
+
+I ran it at M = 26 expecting a modest recall gain. Instead:
+
+| | errors | fraud recall | fraud precision | flagged as fraud |
+| --- | ---: | ---: | ---: | ---: |
+| raw probabilities | **350 of 400** | 1.000 | 0.125 | **100%** |
+
+Every ticket in the dataset routed to the fraud queue. Precision 0.125 is exactly the base
+rate, which is what flagging everything gets you.
+
+The rule is not wrong. The inputs are. Step 2 recorded mean confidence 0.684 against
+accuracy 0.993; this is what that number was worth. L2
+regularisation shrinks logits toward uniform, so `p(fraud | x)` sits above 1/27 for almost
+every ticket even when the model is sure it is something else. A threshold derived from
+real costs was applied to numbers that do not mean what they claim.
+
+Every metric so far reads only the ordering of the probabilities. The moment anything reads their
+*values*, all of that evidence goes silent.
+
+### Proving accuracy cannot see it
+
+If that claim is right we can improve just by sweeping the regularisation strength:
+
+| C | accuracy | mean confidence | gap | errors at M=26 |
+| ---: | ---: | ---: | ---: | ---: |
+| 0.1 | 0.630 | 0.413 | +0.217 | 350 |
+| 1 | 0.993 | 0.685 | +0.307 | 350 |
+| 10 | 1.000 | 0.923 | +0.078 | 31 |
+| 100 | 1.000 | 0.985 | +0.015 | 1 |
+| 1000 | 1.000 | 0.997 | +0.003 | 0 |
+
+Accuracy saturates at C = 10 and never moves again. Everything after that column is
+invisible to accuracy and macro-F1, and it is the difference between 31 errors and 0.
+
+This is the answer to "how would you know if it were hurting you". From macro-F1, you
+would not.
+
+Now the overfitting. The table says C = 1000 fixes everything. It fixes it by fitting 400
+templated tickets almost exactly, and step 2's learning curve showed the model still
+climbing steeply at 320 examples, which is exactly where a hidden holdout will fail.
+Buying calibration by deleting regularisation is a bad trade in small data. We fix
+the probabilities instead, and leave the model alone.
+
+### Calibration
+
+5 fold seeds, cost rule at M = 26 throughout, C left at 1:
+
+| | accuracy | mean conf | ECE | log loss | Brier | errors at M=26 | flagged |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| raw | 0.9885 | 0.690 | 0.300 | 0.392 | 0.151 | 350 | 100.0% |
+| Platt | 0.9990 | 0.916 | 0.084 | 0.092 | 0.017 | 65 | 28.8% |
+| isotonic | 0.9990 | 0.991 | **0.008** | **0.012** | **0.005** | **6** | **14.0%** |
+
+True fraud rate is 12.5%. Isotonic flags 14.0%.
+
+If we look at the accuracy column: 0.9885 to 0.9990, one ticket in a hundred, while the cost-rule
+errors move by a factor of 58. **Log loss separates these three by a factor of 34 and
+macro-F1 separates them by nothing.** Log loss and Brier are proper scoring rules, minimised
+only by honest probabilities; accuracy, F1 and AUC are not. That is why none of them
+noticed, and it is why a proper scoring rule is in the report.
+
+### The isotonic result looks too good - and isotonic is notorious
+
+Isotonic fits a free-form monotone step function. It overfits below roughly a thousand calibration points, 
+and each fold gives it about 80. It should be the fragile choice, and it beat Platt tenfold on ECE. 
+That is the pattern that usually means a measurement error.
+
+Two checks.
+
+**The log loss is partly an artifact.** Isotonic is piecewise constant, so a pure block
+gets value exactly 0 or 1, and log loss is then dominated by wherever we clip.
+Everything above clips at 1e-6 and renormalises, and Brier is reported alongside 
+because it is bounded and does not care.
+
+**The advantage is conditional on separability** If
+isotonic wins only because the classes are cleanly separated, then a step function is the
+easy shape to fit and the overfit premise never applied. Shrinking the data and
+injecting label noise should break it:
+
+| condition | accuracy | Platt ECE | isotonic ECE | Platt errors | isotonic errors |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| none | 0.999 | 0.084 | **0.008** | 65 | **6** |
+| 50% of the data | 0.966 | 0.160 | **0.026** | 106 | **27** |
+| 30% of the data | 0.920 | 0.220 | **0.050** | 99 | **35** |
+| 15% label noise | 0.879 | 0.113 | **0.054** | 254 | **143** |
+
+It does not break. Isotonic's margin *widens* as conditions worsen. Platt has exactly one sigmoid to fit with, 
+and once the distortion stops being sigmoid-shaped that rigidity is the liability, not isotonic's
+flexibility.
+
+**What this still does not test**: all four conditions keep
+calibration and scoring on the same distribution. A holdout whose scores fall outside the
+range isotonic saw would pin to a constant where Platt keeps moving. That argues for
+watching Brier in production, as otherwise I am guessing.
+
+### What M should be
+
+M is a business input, not something to fit.. So here is the
+operating curve instead, isotonic-calibrated:
+
+| M | errors | fraud recall | fraud precision | flagged |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 (`argmax`) | 0.4 | 0.992 | 1.000 | 12.4% |
+| 2 | 0.6 | 0.992 | 0.996 | 12.5% |
+| 5 | 2.0 | 0.996 | 0.965 | 12.9% |
+| 10 | 3.8 | **1.000** | 0.930 | 13.5% |
+| 26 | 6.0 | 1.000 | 0.893 | 14.0% |
+| 100 | 10.4 | 1.000 | 0.829 | 15.1% |
+
+Catching every fraud report costs about 3.4 extra misroutes in 400, and 1% of tickets
+arriving in the fraud queue that do not belong there. Past M = 10 we pay more for nothing,
+because recall is already 1.000.
+
+**Shipping: isotonic calibration, cost rule, M = 10 as the default**, with M exposed as a
+parameter. M = 10 is the smallest cost at which no fraud report is missed. It is a
+placeholder for a real number.
+
+### Where this leaves the imbalance question
+
+Step 4 measured `class_weight='balanced'` winning 10 of 10 seeds.
+The cost rule does the same job in the same direction, with the size of the
+shift set by what a missed fraud costs rather than by 160/50, and it moves sensibly when
+that number is revised. Adding class weights on top would stack an uncontrolled shift on a
+controlled one.

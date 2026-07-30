@@ -7,6 +7,7 @@ from sklearn.pipeline import Pipeline, make_pipeline
 from ticket_router.normalize import normalize
 
 RANDOM_STATE = 0
+LOGISTIC_DEFAULTS = {"max_iter": 5000, "C": 1}
 
 
 def preprocess(text: str) -> str:
@@ -36,7 +37,7 @@ def build_baseline(**logistic_regression_kwargs) -> Pipeline:
     """
     return make_pipeline(
         TfidfVectorizer(sublinear_tf=True, ngram_range=(1, 2)),
-        LogisticRegression(max_iter=5000, C=1, **logistic_regression_kwargs),
+        LogisticRegression(**{**LOGISTIC_DEFAULTS, **logistic_regression_kwargs}),
     )
 
 
@@ -54,5 +55,5 @@ def build_router(**logistic_regression_kwargs) -> Pipeline:
     """
     return make_pipeline(
         TfidfVectorizer(sublinear_tf=True, ngram_range=(1, 2), preprocessor=preprocess),
-        LogisticRegression(max_iter=5000, C=1, **logistic_regression_kwargs),
+        LogisticRegression(**{**LOGISTIC_DEFAULTS, **logistic_regression_kwargs}),
     )
