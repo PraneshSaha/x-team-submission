@@ -175,3 +175,79 @@ stratified 80/20 splits reports macro-F1 anywhere from **0.923 to 1.000**, sd 0.
   something. Mean confidence is 0.684 against accuracy 0.993, a gap of +0.31, so they
   currently do not.
 - macro-F1 will not detect any of that, because it sees only the argmax.
+
+---
+
+## Step 3: normalising amounts and asset names
+
+```bash
+uv run python analysis/03_normalization.py
+```
+
+Writes `results/03_coverage.csv`, `03_clean_scores.csv`, `03_robustness.csv`.
+
+Step-1 showed `fraud-report` has the thinnest vocabulary coverage. Its once-only tokens are
+`15 3am 880 activity browser cardano computer desktop litecoin missing usdt wasn`, and
+`transaction-dispute`'s are `120 500 75 880`. Amounts, times and asset names. All three
+step-2 errors mention a ticker and an amount.
+
+As the holdout is hidden removing these might help. Both
+of these are open-ended surface forms: a new ticket can always carry an amount or an asset
+we have never seen, and neither decides the route. So there are two candidate
+interventions, and they are not equally cheap.
+
+| | needs a word list | goes stale |
+| --- | --- | --- |
+| `$10,000` -> `moneyamount`, `3am` -> `clocktime` | no, a regex | no |
+| `SOL`, `litecoin` -> `cryptoasset` | yes, ~90 names and tickers | yes |
+
+### Measurements
+
+**Coverage.** Both interventions do what they claim. Missing mass:
+
+| class | raw | money | money + assets |
+| --- | ---: | ---: | ---: |
+| fraud-report | 0.0197 | 0.0171 | **0.0131** |
+| transaction-dispute | 0.0027 | **0.0000** | 0.0000 |
+| account-access | 0.0025 | 0.0025 | 0.0025 |
+| general | 0.0005 | 0.0005 | 0.0005 |
+
+Money alone empties `transaction-dispute`'s open vocabulary: all four of its once-only
+tokens were amounts.
+
+**Accuracy on the data as it stands.** 10 fold seeds, paired against raw:
+
+| variant | macro-F1 | fraud recall | wins | ties | losses |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| raw | 0.9874 | 0.9360 | 0 | 10 | 0 |
+| money | 0.9871 | 0.9340 | 0 | 9 | 1 |
+| money + assets | 0.9875 | 0.9320 | 2 | 6 | 2 |
+| money + tickers | 0.9873 | 0.9340 | 1 | 8 | 1 |
+
+Nothing moves. Nine or ten ties out of ten.
+
+**Under perturbation, which is the surprise.** Models train on clean text; held-out
+tickets are rewritten to name assets the training set never saw. The swap changes
+**182 of 400** tickets.
+
+| held-out condition | raw | money | money + assets |
+| --- | ---: | ---: | ---: |
+| clean | 0.9874 | 0.9871 | 0.9875 |
+| unseen amounts | 0.9876 | 0.9871 | 0.9875 |
+| unseen asset, in our vocabulary | 0.9882 | 0.9884 | 0.9875 |
+| unseen asset, unknown to us | 0.9878 | 0.9880 | 0.9888 |
+
+Rewriting 182 tickets to talk about assets the model has never heard of does not move
+macro-F1 at all. The hypothesis this step was built to test is false.
+
+**Why.** The top-weighted fraud features are `someone, account and, my account, was,
+account, fraud, think, never, unauthorized, recognize, money`. Not one asset name, not one
+amount. 
+
+### Decision
+
+**Money normalisation ships. The asset list does not.**
+
+**What this does not rule out.** The perturbation moves the axis the model turns out not
+to use. A holdout that differs in *complaint phrasing* rather than in nouns would hurt,
+and neither intervention helps with that. That risk is real and remains untested.

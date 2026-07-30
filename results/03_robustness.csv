@@ -1,0 +1,17 @@
+condition,variant,macro_f1,target_recall
+clean,money,0.9870841082611135,0.9339999999999999
+clean,money + assets,0.9874924328786783,0.932
+clean,money + tickers,0.9873328644800189,0.9339999999999999
+clean,raw,0.9874191849733889,0.9359999999999999
+unseen amounts,money,0.9870841082611135,0.9339999999999999
+unseen amounts,money + assets,0.9874924328786783,0.932
+unseen amounts,money + tickers,0.9873328644800189,0.9339999999999999
+unseen amounts,raw,0.9876008677350882,0.9359999999999999
+"unseen asset, in vocabulary",money,0.9884253881480018,0.942
+"unseen asset, in vocabulary",money + assets,0.9874924328786783,0.932
+"unseen asset, in vocabulary",money + tickers,0.9886282025996218,0.942
+"unseen asset, in vocabulary",raw,0.988239013016309,0.942
+"unseen asset, out of vocabulary",money,0.9880347413485154,0.9400000000000001
+"unseen asset, out of vocabulary",money + assets,0.9887568702337177,0.9400000000000001
+"unseen asset, out of vocabulary",money + tickers,0.9882375558001353,0.9400000000000001
+"unseen asset, out of vocabulary",raw,0.9878483662168225,0.9400000000000001

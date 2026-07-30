@@ -4,8 +4,6 @@ Writes results/01_class_counts.csv, results/01_coverage.csv and
 results/01_vocab_growth.csv. Run with `uv run python analysis/01_distribution.py`.
 """
 
-import re
-from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -19,42 +17,14 @@ from ticket_router.data import (
     imbalance_ratio,
     load_tickets,
 )
+from ticket_router.text import missing_mass, tokenize
 
 REPO = Path(__file__).resolve().parents[1]
 DATA = REPO / "train.csv"
 RESULTS = REPO / "results"
 
-TOKEN = re.compile(r"\b\w\w+\b")
 SHUFFLES = 200
 SEED = 0
-
-
-def tokenize(text: str) -> list[str]:
-    """Split text into the tokens the model will see.
-
-    Args:
-        text: A raw ticket.
-
-    Returns:
-        Lowercased tokens matching scikit-learn's default token pattern.
-    """
-    return TOKEN.findall(text.lower())
-
-
-def missing_mass(documents: list[str]) -> float:
-    """Estimate the chance that the next token drawn is one never seen before.
-
-    Args:
-        documents: Tickets belonging to a single class.
-
-    Returns:
-        The Good-Turing missing mass, the share of the corpus made of tokens
-        occurring exactly once. Higher means the class vocabulary is still open.
-    """
-    counts = Counter(token for document in documents for token in tokenize(document))
-    total = sum(counts.values())
-    hapax = sum(1 for count in counts.values() if count == 1)
-    return hapax / total if total else float("nan")
 
 
 def coverage_at(
