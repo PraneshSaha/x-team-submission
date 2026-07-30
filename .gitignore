@@ -221,3 +221,6 @@ __marimo__/
 .idea/
 .vscode/
 .DS_Store
+
+# Fitted model artifact
+model.joblib

@@ -92,7 +92,10 @@ def resample_indices(
     Returns:
         Resampled positions, with every class present in equal number.
     """
-    groups = {label: indices[labels[indices] == label] for label in set(labels[indices])}
+    groups = {
+        label: indices[labels[indices] == label]
+        for label in sorted(set(labels[indices]))
+    }
     size = (
         max(len(group) for group in groups.values())
         if mode == "over"

@@ -307,8 +307,8 @@ Four options, on identical folds, 10 seeds:
 | --- | ---: | ---: | ---: | ---: | ---: |
 | plain | 0.9871 | 0.9822 | 0.9340 | 1.0000 | 0.3938 |
 | class weights | **0.9992** | 0.9990 | 0.9960 | 1.0000 | 0.4018 |
-| oversample minority | 0.9990 | 0.9988 | 0.9960 | 1.0000 | **0.3069** |
-| undersample majority | 0.9716 | 0.9778 | 0.9960 | 0.9170 | 0.6305 |
+| oversample minority | 0.9967 | 0.9958 | 0.9920 | 1.0000 | **0.3101** |
+| undersample majority | 0.9813 | 0.9858 | 0.9960 | 0.9556 | 0.6313 |
 
 Paired against plain, counting direction rather than size:
 
@@ -316,7 +316,7 @@ Paired against plain, counting direction rather than size:
 | --- | ---: | ---: | ---: | ---: |
 | class weights | 10 / 0 / 0 | p = 0.002 | 10 / 0 / 0 | p = 0.002 |
 | oversample minority | 10 / 0 / 0 | p = 0.002 | 10 / 0 / 0 | p = 0.002 |
-| undersample majority | 1 / 0 / 9 | p = 0.022 | 10 / 0 / 0 | p = 0.002 |
+| undersample majority | 3 / 0 / 7 | p = 0.34 | 10 / 0 / 0 | p = 0.002 |
 
 
 **Class weights and oversampling are the same intervention.** 0.9992 against 0.9990,
@@ -324,9 +324,10 @@ identical fraud recall, and both move the same three errors. Both change
 how often each class is drawn without changing what a fraud ticket looks like, so both
 shift the decision boundary by the same offset and leave the ranking alone.
 
-**Undersampling is strictly worse.** Same recall gain, but precision falls 1.000 to 0.917
-and log loss nearly doubles. It throws away 110 of 160 `general` tickets to fix a problem
-that was never about the ratio.
+**Undersampling buys the recall and loses everywhere else.** Same recall gain, but
+precision falls 1.000 to 0.956 and log loss nearly doubles, and on macro-F1 it is 3 wins
+to 7 losses, p = 0.34, which is no evidence either way. It throws away 110 of 160
+`general` tickets to fix a problem that was never about the ratio.
 
 **Log loss disagrees with macro-F1** Class weights
 win 10/10 on macro-F1 while losing 10/10 on log loss. It most improves
@@ -548,3 +549,10 @@ Sanity check on four messages written by hand.
 
 At 10k requests a minute we need 167 predictions a second and one core does sixty times
 that.
+
+### Trade-offs
+1. Skipped fastapi, docker mostly because they are trivial extensions to the problem and choose to spend more time on data.
+2. We could have tested LLMs/language-models. One easy one can be introducing sentence-embeddings instead of tf-ids. But would need more time.
+3. Logging
+4. The tickets are templated: zero exact duplicates, but mean length 14 words and heavily repeated phrasing. 
+Vocabulary saturates far faster than a real support queue would, so 0.989 is optimistic and every coverage number in the README is a lower bound on how open the true vocabulary is.
