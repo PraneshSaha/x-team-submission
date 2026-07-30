@@ -251,3 +251,95 @@ amount.
 **What this does not rule out.** The perturbation moves the axis the model turns out not
 to use. A holdout that differs in *complaint phrasing* rather than in nouns would hurt,
 and neither intervention helps with that. That risk is real and remains untested.
+
+---
+
+## Step 4: choosing a metric, then choosing what to do about imbalance
+
+```bash
+uv run python analysis/04_metric_and_imbalance.py
+```
+
+Writes `results/04_degenerate.csv`, `04_methods.csv`, `04_paired.csv`.
+
+These are one step because the metric decides the imbalance question. 
+
+### Which metric
+
+The sharpest test of a metric is to score a classifier that ignores the input. Whatever it
+gets is that metric's floor, and a high floor flatters the model.
+
+| strategy | accuracy | micro-F1 | macro-F1 | weighted-F1 | balanced acc |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| always `general` | 0.400 | 0.400 | 0.143 | 0.229 | 0.250 |
+| always `fraud-report` | 0.125 | 0.125 | 0.056 | 0.028 | 0.250 |
+| uniform random | 0.270 | 0.270 | 0.256 | 0.280 | 0.263 |
+| random at class rates | 0.235 | 0.235 | 0.201 | 0.237 | 0.202 |
+
+Three things fall out.
+
+**Accuracy and micro-F1 are the same number**, both no-go (and same in case of multi-class classification).
+
+**Balanced accuracy gives every constant classifier exactly 0.250**, which is 1/K. It
+averages per-class recall and a constant classifier gets recall 1 on one class and 0 on
+the rest. That fixed floor makes it readable, which macro-F1 has no equivalent of.
+
+**Macro-F1 prefers uniform random (0.256) to always-`general` (0.143).**  it refuses to reward a model for ignoring small
+classes, and `general` is 40% of the data.
+
+Weighted-F1 is the bad one. It scores always-`general` at 0.229 against macro-F1's
+0.143, because it weights by support.
+
+**Choice: macro-F1 as the headline, balanced accuracy beside it, log loss alongside both.**
+
+And the caveat that matters. **Macro-F1 and balanced accuracy both
+weight the four classes equally.** The brief says `fraud-report` is the highest-stakes
+route to get wrong. An equal-weight metric is the right instrument for asking "is the model ignoring a small class",
+and the wrong one for asking "is the model making the expensive mistake".
+
+Log loss is there because macro-F1 and balanced accuracy see only the argmax. 
+
+### The imbalance choice
+
+Four options, on identical folds, 10 seeds:
+
+| method | macro-F1 | balanced acc | fraud recall | fraud precision | log loss |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| plain | 0.9871 | 0.9822 | 0.9340 | 1.0000 | 0.3938 |
+| class weights | **0.9992** | 0.9990 | 0.9960 | 1.0000 | 0.4018 |
+| oversample minority | 0.9990 | 0.9988 | 0.9960 | 1.0000 | **0.3069** |
+| undersample majority | 0.9716 | 0.9778 | 0.9960 | 0.9170 | 0.6305 |
+
+Paired against plain, counting direction rather than size:
+
+| method | macro-F1 wins/ties/losses | sign test | fraud recall | sign test |
+| --- | ---: | ---: | ---: | ---: |
+| class weights | 10 / 0 / 0 | p = 0.002 | 10 / 0 / 0 | p = 0.002 |
+| oversample minority | 10 / 0 / 0 | p = 0.002 | 10 / 0 / 0 | p = 0.002 |
+| undersample majority | 1 / 0 / 9 | p = 0.022 | 10 / 0 / 0 | p = 0.002 |
+
+
+**Class weights and oversampling are the same intervention.** 0.9992 against 0.9990,
+identical fraud recall, and both move the same three errors. Both change
+how often each class is drawn without changing what a fraud ticket looks like, so both
+shift the decision boundary by the same offset and leave the ranking alone.
+
+**Undersampling is strictly worse.** Same recall gain, but precision falls 1.000 to 0.917
+and log loss nearly doubles. It throws away 110 of 160 `general` tickets to fix a problem
+that was never about the ratio.
+
+**Log loss disagrees with macro-F1** Class weights
+win 10/10 on macro-F1 while losing 10/10 on log loss. It most improves
+the argmax but makes the probabilities worse, because it biases them. Anything
+downstream reading a probability rather than a label is paying for that improvement.
+
+### Decision
+
+**Ship class weights? No, not yet.** They win, and they win for the wrong reason.
+
+Step 2 established this is a decision problem: the fraud score already separates the
+classes on 10 of 10 seeds, and only `argmax` is wrong. `class_weight='balanced'` fixes that
+by shifting the boundary, and it picks the size of the shift from the class ratio,
+`160/50`. Nothing about 3.2 encodes what missing a fraud report costs. It works here only
+because the rarest class happens to be the expensive one, which is a coincidence of this
+dataset and not a property we should build on.
