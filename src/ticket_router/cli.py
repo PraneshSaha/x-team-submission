@@ -69,6 +69,29 @@ def score(
     return output
 
 
+def load_or_fit(model: Path | None, data: Path, missed_cost: float) -> TicketRouter:
+    """Load a saved router, or fit one from the training data if none was given.
+
+    Args:
+        model: Path to a saved router, or None.
+        data: CSV to fit from when there is no saved router.
+        missed_cost: Cost of misrouting the target class, applied either way so the
+            trade-off can be changed without retraining.
+
+    Returns:
+        A fitted router.
+    """
+    if model and model.is_file():
+        router = TicketRouter.load(model)
+        router.missed_target_cost = missed_cost
+        return router
+    frame = load_tickets(data)
+    print(f"no saved model given, fitting on {data}", file=sys.stderr)
+    return TicketRouter(missed_target_cost=missed_cost).fit(
+        frame[TEXT_COLUMN], frame[LABEL_COLUMN]
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Describe the command line interface.
 
@@ -84,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
     trainer.add_argument("--data", type=Path, default=DEFAULT_TRAINING_DATA)
     trainer.add_argument("--model", type=Path, default=REPO / "model.joblib")
     trainer.add_argument("--missed-cost", type=float, default=DEFAULT_MISSED_COST)
+
+    single = subcommands.add_parser("predict", help="route one message given as text")
+    single.add_argument("message")
+    single.add_argument("--model", type=Path, default=None)
+    single.add_argument("--data", type=Path, default=DEFAULT_TRAINING_DATA)
+    single.add_argument("--missed-cost", type=float, default=DEFAULT_MISSED_COST)
+    single.add_argument(
+        "--probabilities", action="store_true", help="also print each queue's probability"
+    )
 
     scorer = subcommands.add_parser("score", help="route the messages in a CSV")
     scorer.add_argument("--input", type=Path, required=True)
@@ -109,15 +141,18 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "train":
             train(arguments.data, arguments.model, arguments.missed_cost)
             return 0
-        if arguments.model and arguments.model.is_file():
-            router = TicketRouter.load(arguments.model)
-            router.missed_target_cost = arguments.missed_cost
-        else:
-            frame = load_tickets(arguments.data)
-            router = TicketRouter(missed_target_cost=arguments.missed_cost).fit(
-                frame[TEXT_COLUMN], frame[LABEL_COLUMN]
-            )
-            print(f"no saved model given, fitted on {arguments.data}", file=sys.stderr)
+        router = load_or_fit(
+            arguments.model, arguments.data, arguments.missed_cost
+        )
+        if arguments.command == "predict":
+            print(router.predict(arguments.message))
+            if arguments.probabilities:
+                for queue, probability in sorted(
+                    router.predict_proba(arguments.message).items(),
+                    key=lambda item: -item[1],
+                ):
+                    print(f"  {queue:22s} {probability:.3f}", file=sys.stderr)
+            return 0
         score(router, arguments.input, arguments.output, arguments.text_column)
         return 0
     except (FileNotFoundError, ValueError, TypeError, RuntimeError) as error:

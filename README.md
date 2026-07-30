@@ -14,6 +14,43 @@ uv run pytest      # run the tests
 
 Anything prefixed with `uv run` executes inside that environment. No manual activation needed.
 
+## Running it
+
+Route one message, with no setup beyond `uv sync`. This fits on `train.csv` first, which
+takes about 0.13 s:
+
+```bash
+uv run ticket-router predict "Someone moved funds out of my wallet and I did not authorise it."
+# fraud-report
+```
+
+Train once and reuse, which is what you want for anything repeated:
+
+```bash
+uv run ticket-router train --model model.joblib
+uv run ticket-router predict --model model.joblib --probabilities "I was charged twice, please refund."
+#   transaction-dispute    0.990
+#   fraud-report           0.010
+# transaction-dispute
+```
+
+Score a holdout CSV. Needs a `text` column, writes every input column back plus
+`predicted_label`, one row per input row in the original order:
+
+```bash
+uv run ticket-router score --model model.joblib --input messages.csv --output predictions.csv
+```
+
+From Python:
+
+```python
+from ticket_router.router import TicketRouter
+
+router = TicketRouter.load("model.joblib")          # or TicketRouter().fit(texts, labels)
+router.predict("A transfer left my wallet that I did not authorise.")   # 'fraud-report'
+router.predict_proba("...")                                             # the values the rule reads
+```
+
 ## How to read this repo
 
 The commit history is the argument. Each commit takes one assumption about the data,
