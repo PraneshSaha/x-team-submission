@@ -73,3 +73,105 @@ examples would not close the gap. Since it is not, more fraud examples would, an
 `general`'s curve says roughly how many: 160 documents took the broadest class down to
 0.001.
 
+
+---
+
+## Step 2: a baseline with nothing done about imbalance
+
+```bash
+uv run python analysis/02_baseline.py
+```
+
+Writes `results/02_scores.csv`, `02_per_class.csv`, `02_confusion.csv`, `02_errors.csv`,
+`02_score_separation.csv`, `02_learning_curve.csv`, `02_split_variance.csv`.
+
+TF-IDF (1-2 grams, sublinear) plus logistic regression -> scored on 5-fold stratified cross val.
+
+This tells us whether we -
+1. need to worry about imbalance
+2. have clean separation or not
+3. can trust the probabilities, from log loss and the confidence gap
+
+| | |
+| --- | ---: |
+| accuracy | 0.9925 |
+| macro-F1 | 0.9893 |
+| balanced accuracy | 0.9850 |
+| log loss | 0.4019 |
+| mean confidence | 0.6841 |
+| confidence gap | +0.3084 |
+| errors | 3 of 400 |
+
+Per class:
+
+| class | precision | recall | support |
+| --- | ---: | ---: | ---: |
+| account-access | 1.000 | 1.000 | 100 |
+| general | 0.988 | 1.000 | 160 |
+| transaction-dispute | 0.989 | 1.000 | 90 |
+| fraud-report | **1.000** | **0.940** | 50 |
+
+**All three errors are `fraud-report`.** Every other class is perfect. So, imbalance is not significant
+and error is in the class that is highest priority.
+
+Also, worth noting the fraud failures: precision 1.000, recall 0.940. 
+The model never wrongly classified the other classes as fraud. 
+It only ever misses fraud. That implies under-confidence in fraud classification.
+
+### Is that a data problem or a model problem?
+
+If `fraud-report` overlaps the other classes in feature space, or is
+starved of examples, the fix is: more data, better features, resampling. If the
+signal is present and only the decision rule is wrong, the fix is downstream: a threshold.
+
+The test is whether the fraud score alone separates the classes:
+
+| | lowest score on a true fraud | highest score on anything else | gap |
+| --- | ---: | ---: | ---: |
+| seed 0 | 0.227 | 0.147 | +0.080 |
+
+Across 10 fold seeds the gap is **positive on 10 of 10**. The two groups never overlap on
+this one score.
+
+Replacing `argmax` with a cut on that score, mean errors per seed over the 10:
+
+| rule | errors |
+| --- | ---: |
+| argmax | 3.7 |
+| best cut, chosen on the same predictions | 0.5 |
+| cut chosen inside the training folds only | **1.1** |
+
+Only the last row is honest. The middle one picks the cut on the data it is then scored
+on, so it is a lower bound and not an estimate. The nested number is the one to quote: a
+70% error reduction, and it beats `argmax` on 9 of the 10 seeds.
+
+So the information is already in the model. `argmax` is the wrong decision rule for a
+class where the costs are asymmetric, and resampling or reweighting can only imitate what
+a threshold does directly. This is a prior and cost problem, not a scarcity and overlap
+problem.
+
+The cut here was still fitted to minimise errors, which is not the right objective either,
+given errors on all classes are not same - fraud is more important.
+
+That contradicts the reading of step 1. `fraud-report` did have the thinnest
+vocabulary coverage, and it is the class that fails, but the failure is not caused by
+the coverage gap.
+
+### Two reasons not to trust 0.9893
+
+**It is data-limited, not converged.** The learning curve is still climbing steeply at the
+largest training size available: 0.934 at 224 examples, 0.975 at 288, 0.989 at 320. 
+This model is not saturated.
+
+**A single split cannot resolve anything at this size.** The same model on 40 different
+stratified 80/20 splits reports macro-F1 anywhere from **0.923 to 1.000**, sd 0.019. This
+7.7-point range is wider than any effect any of the candidate methods will produce. 
+
+### Consequences for the rest of the work
+
+- The imbalance-handling toolbox aimed at scarcity and overlap is the wrong drawer. It
+  cannot beat a threshold at fixing a threshold problem.
+- Since the fix is a decision rule reading probability values, those values have to mean
+  something. Mean confidence is 0.684 against accuracy 0.993, a gap of +0.31, so they
+  currently do not.
+- macro-F1 will not detect any of that, because it sees only the argmax.

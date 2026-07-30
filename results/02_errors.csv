@@ -1,0 +1,4 @@
+text,true,predicted,confidence
+"Hi, My account shows activity at 3am that wasn't me, $10,000 of USDC is missing. This is time sensitive.",fraud-report,transaction-dispute,0.2811677663787281
+Please help. There's a suspicious SOL transfer to an unknown wallet that I did not make. Please advise.,fraud-report,general,0.3485738263699146
+"Quick question, There's a suspicious USDC transfer to an unknown wallet that I did not make. Appreciate any help.",fraud-report,general,0.3425169446932382

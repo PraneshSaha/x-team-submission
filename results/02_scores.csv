@@ -1,0 +1,2 @@
+accuracy,macro_f1,balanced_accuracy,log_loss,mean_confidence,confidence_gap,errors
+0.9925,0.9893340307364443,0.985,0.40191406567812366,0.6840607785725633,0.30843922142743674,3

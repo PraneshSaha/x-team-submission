@@ -1,0 +1,5 @@
+label,precision,recall,f1-score,support
+account-access,1.0,1.0,1.0,100.0
+fraud-report,1.0,0.94,0.9690721649484536,50.0
+general,0.9876543209876543,1.0,0.9937888198757764,160.0
+transaction-dispute,0.989010989010989,1.0,0.994475138121547,90.0
