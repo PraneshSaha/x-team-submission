@@ -491,3 +491,60 @@ The cost rule does the same job in the same direction, with the size of the
 shift set by what a missed fraud costs rather than by 160/50, and it moves sensibly when
 that number is revised. Adding class weights on top would stack an uncontrolled shift on a
 controlled one.
+
+---
+
+## Step 6: ship
+
+```bash
+uv run ticket-router train --model model.joblib
+uv run ticket-router score --input messages.csv --output predictions.csv --model model.joblib
+uv run pytest
+```
+
+`score` also works without `--model`, in which case it fits on `train.csv` first, so a
+reviewer can run one command.
+
+```python
+from ticket_router.router import TicketRouter
+
+router = TicketRouter().fit(texts, labels)      # or TicketRouter.load("model.joblib")
+router.predict("A transfer left my wallet that I did not authorise.")
+# 'fraud-report'
+router.predict_proba("...")                     # the values the routing decision reads
+```
+
+The shipped model is the accumulation of the five decisions above: TF-IDF 1-2 grams with
+money normalisation, logistic regression at C = 1, isotonic calibration, and routing by
+expected cost with `missed_target_cost = 10`.
+
+Trained on all 400 rows, and step 2's learning curve showed the model is still gaining from every example it gets. 
+So, more data will help
+
+### Validation, and why these three
+
+`load_tickets` rejects missing columns, nulls and blank text. `predict` rejects non-strings,
+blank text and anything over 10,000 characters. `fit` rejects a missing target class or a
+class too small to calibrate.
+
+Sanity check on four messages written by hand.
+
+| message | routed to |
+| --- | --- |
+| "suspicious USDC transfer to a wallet I do not recognise, $10,000 gone" | `fraud-report` |
+| "I am locked out and my SMS code never arrives" | `account-access` |
+| "How do I change my email address?" | `general` |
+| "I was charged twice for the same order, please refund" | `transaction-dispute` |
+
+### Cost of running it
+
+| | |
+| --- | ---: |
+| fit on 400 tickets | 0.13 s |
+| model on disk | 395 KB |
+| single prediction | 4.4 ms median, 11.7 ms p95 |
+| batch throughput | ~10,500 tickets/sec, single core |
+| needed for 10,000 requests/minute | 167 tickets/sec |
+
+At 10k requests a minute we need 167 predictions a second and one core does sixty times
+that.

@@ -8,10 +8,14 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "joblib>=1.5.3",
     "numpy>=2.5.1",
     "pandas>=3.0.5",
     "scikit-learn>=1.9.0",
 ]
+
+[project.scripts]
+ticket-router = "ticket_router.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.10,<0.12.0"]
