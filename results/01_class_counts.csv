@@ -1,0 +1,5 @@
+label,count,share
+general,160,0.4
+account-access,100,0.25
+transaction-dispute,90,0.225
+fraud-report,50,0.125
